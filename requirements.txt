@@ -1,0 +1,5 @@
+fastapi
+uvicorn
+# 테스트 전용
+pytest
+httpx

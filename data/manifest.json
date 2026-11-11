@@ -1,0 +1,18 @@
+{
+  "manifest_kind": "temporary",
+  "note": "임시 manifest — 전처리 산출물에 manifest.json이 없어 메인 서버에서 작성. 정식 manifest는 추후 요청 예정.",
+  "covered_lines": ["2", "5"],
+  "excluded": {
+    "9": "9호선 역간 소요시간 자료 미확보 (2026-11-10 기준)"
+  },
+  "data_version": "local-2025-2026-preprocess",
+  "fare_version": "fare_250628",
+  "source": "서울교통공사 원본 CSV(역간거리 및 소요시간_240810, 환승역거리 소요시간_20260831, 운임표_250628) 전처리 산출물 — 이도연, myway-android repo file 브랜치",
+  "files": {
+    "stations": "stations.csv",
+    "graph_edges": "graph_edges.csv",
+    "segments": "segments.csv",
+    "transfers": "transfers.csv",
+    "quality_checks": "quality_checks.csv"
+  }
+}
