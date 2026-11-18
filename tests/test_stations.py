@@ -62,3 +62,29 @@ def test_docs_available(client):
     spec = client.get("/openapi.json").json()
     assert "/v1/stations" in spec["paths"]
     assert "/v1/stations/search" in spec["paths"]
+
+
+def test_search_strips_trailing_yeok(client):
+    r = client.get("/v1/stations/search", params={"q": "시청역"})
+    assert r.status_code == 200
+    items = r.json()["items"]
+    assert items[0]["name"] == "시청"
+
+
+def test_search_yeok_exact_name_first(client):
+    r = client.get("/v1/stations/search", params={"q": "여의도역"})
+    items = r.json()["items"]
+    assert {s["name"] for s in items} == {"여의도"}
+    assert {s["line"] for s in items} == {"5", "9"}
+
+
+def test_search_partial_still_works(client):
+    r = client.get("/v1/stations/search", params={"q": "을지로"})
+    names = [s["name"] for s in r.json()["items"]]
+    assert names == ["을지로3가", "을지로3가"]
+
+
+def test_search_single_char_yeok_not_stripped(client):
+    r = client.get("/v1/stations/search", params={"q": "역"})
+    items = r.json()["items"]
+    assert [s["name"] for s in items] == ["시험용비활성역"]

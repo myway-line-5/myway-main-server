@@ -46,5 +46,8 @@ class StationCatalog:
         q = query.strip()
         if not q:
             return self.all()
-        # 동일 이름의 다중 결과(동명 다른 노선)를 line 정보와 함께 모두 반환한다
-        return [s for s in self._stations if q in s.name]
+        if len(q) > 1 and q.endswith("역"):
+            q = q[:-1]
+        matches = [s for s in self._stations if q in s.name]
+        matches.sort(key=lambda s: s.name != q)
+        return matches
