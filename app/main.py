@@ -8,7 +8,8 @@ from .ai_client import AiClient
 from .catalog import StationCatalog
 from .config import Settings
 from .db import Database, init_db
-from .routers import conditions, interpret, stations
+from .routers import conditions, interpret, routes, stations
+from .routing import RoutingGraph
 from .sessions import SessionStore
 
 
@@ -25,6 +26,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.db = db
     app.state.session_store = SessionStore(ttl_seconds=settings.session_ttl_seconds)
     app.state.catalog = StationCatalog.load(db)
+    app.state.routing = RoutingGraph.load(db, app.state.catalog, settings.algorithm_src_path)
     app.state.ai_client = AiClient(
         base_url=settings.ai_server_base_url,
         token=settings.ai_server_auth_token,
@@ -34,6 +36,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(stations.router, prefix="/v1")
     app.include_router(interpret.router, prefix="/v1")
     app.include_router(conditions.router, prefix="/v1")
+    app.include_router(routes.router, prefix="/v1")
 
     @app.get("/health", tags=["meta"], summary="헬스 체크")
     def health() -> dict[str, str]:

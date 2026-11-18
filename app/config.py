@@ -69,3 +69,12 @@ class Settings:
 
         self.db_path = env.get("MYWAY_DB_PATH", "myway.db")
         self.session_ttl_seconds = int(env.get("SESSION_TTL_SECONDS", "3600"))
+
+        default_algo_src = str(Path(__file__).resolve().parents[2] / "myway-algorithm" / "src")
+        algo_src = env.get("MYWAY_ALGORITHM_SRC_PATH", "").strip() or default_algo_src
+        if not (Path(algo_src) / "dijkstra.py").is_file():
+            raise RuntimeError(
+                f"경로 탐색 함수 소스 디렉터리가 올바르지 않습니다: {algo_src}. "
+                "MYWAY_ALGORITHM_SRC_PATH 환경변수를 확인하세요. 서버를 시작할 수 없습니다."
+            )
+        self.algorithm_src_path = algo_src

@@ -17,3 +17,13 @@ T0015,L5_MAIN_026,을지로4가,5,main_to_gangdong,L2_MAIN_004,을지로4가,2,m
 T0016,L5_MAIN_027,동대문역사문화공원,5,main_to_gangdong,L2_MAIN_005,동대문역사문화공원,2,main_loop,195,234,LINE_CHANGE,true,1,false,94,서울교통공사_환승역거리 소요시간 정보_20260831.csv,원본 환승 데이터 방향
 T0017,L5_MAIN_031,왕십리,5,main_to_gangdong,L2_MAIN_008,왕십리,2,main_loop,72,86,LINE_CHANGE,true,1,false,97,서울교통공사_환승역거리 소요시간 정보_20260831.csv,원본 환승 데이터 방향
 T0018,L2_SINJEONG_004,까치산,2,sinjeong_branch,L5_MAIN_009,까치산,5,main_to_gangdong,14,17,LINE_CHANGE,true,1,true,83,서울교통공사_환승역거리 소요시간 정보_20260831.csv,반대 방향 원본 행이 없어 원본 환승시간·거리를 대칭 적용
+T0019,L2_MAIN_018,종합운동장,2,main_loop,L9_MAIN_030,종합운동장,9,main,78,94,LINE_CHANGE,true,1,false,27,서울교통공사_환승역거리 소요시간 정보_20260831.csv,원본 환승 데이터 방향
+T0020,L9_MAIN_030,종합운동장,9,main,L2_MAIN_018,종합운동장,2,main_loop,78,94,LINE_CHANGE,true,1,true,27,서울교통공사_환승역거리 소요시간 정보_20260831.csv,반대 방향 원본 행이 없어 원본 환승시간·거리를 대칭 적용
+T0021,L2_MAIN_037,당산,2,main_loop,L9_MAIN_013,당산,9,main,88,105,LINE_CHANGE,true,1,false,37,서울교통공사_환승역거리 소요시간 정보_20260831.csv,원본 환승 데이터 방향
+T0022,L9_MAIN_013,당산,9,main,L2_MAIN_037,당산,2,main_loop,88,105,LINE_CHANGE,true,1,true,37,서울교통공사_환승역거리 소요시간 정보_20260831.csv,반대 방향 원본 행이 없어 원본 환승시간·거리를 대칭 적용
+T0023,L5_MAIN_003,김포공항,5,main_to_gangdong,L9_MAIN_002,김포공항,9,main,88,106,LINE_CHANGE,true,1,false,80,서울교통공사_환승역거리 소요시간 정보_20260831.csv,원본 환승 데이터 방향
+T0024,L9_MAIN_002,김포공항,9,main,L5_MAIN_003,김포공항,5,main_to_gangdong,88,106,LINE_CHANGE,true,1,true,80,서울교통공사_환승역거리 소요시간 정보_20260831.csv,반대 방향 원본 행이 없어 원본 환승시간·거리를 대칭 적용
+T0025,L5_MAIN_017,여의도,5,main_to_gangdong,L9_MAIN_015,여의도,9,main,57,68,LINE_CHANGE,true,1,false,86,서울교통공사_환승역거리 소요시간 정보_20260831.csv,원본 환승 데이터 방향
+T0026,L9_MAIN_015,여의도,9,main,L5_MAIN_017,여의도,5,main_to_gangdong,57,68,LINE_CHANGE,true,1,true,86,서울교통공사_환승역거리 소요시간 정보_20260831.csv,반대 방향 원본 행이 없어 원본 환승시간·거리를 대칭 적용
+T0027,L5_MACHEON_002,올림픽공원,5,macheon_branch,L9_MAIN_036,올림픽공원(한국체대),9,main,78,93,LINE_CHANGE,true,1,false,103,서울교통공사_환승역거리 소요시간 정보_20260831.csv,원본 환승 데이터 방향
+T0028,L9_MAIN_036,올림픽공원(한국체대),9,main,L5_MACHEON_002,올림픽공원,5,macheon_branch,78,93,LINE_CHANGE,true,1,true,103,서울교통공사_환승역거리 소요시간 정보_20260831.csv,반대 방향 원본 행이 없어 원본 환승시간·거리를 대칭 적용

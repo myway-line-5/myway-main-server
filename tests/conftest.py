@@ -30,6 +30,9 @@ TEST_ENV_BASE = {
     "AI_SERVER_AUTH_TOKEN": TEST_TOKEN,
     "AI_SERVER_BASE_URL": "http://127.0.0.1:8000",
     "MYWAY_EXPECTED_AI_PROVIDER": "mock",
+    "MYWAY_ALGORITHM_SRC_PATH": os.environ.get(
+        "MYWAY_ALGORITHM_SRC_PATH", str(ROOT.parent / "myway-algorithm" / "src")
+    ),
 }
 
 # 앱 Fake와 같은 케이스: 동명 다른 노선 / 비활성 역 / 존재하지 않는 이름

@@ -14,6 +14,7 @@
 """
 from __future__ import annotations
 
+import copy
 import threading
 import time
 import uuid
@@ -189,6 +190,17 @@ class SessionStore:
             s.confirmed_condition = None
             s.version += 1
             return True
+
+    def confirm_conditions(self, session_id: str) -> int | None:
+        """탐색 직전에 현재 편집 조건을 확정 탐색 조건으로 복사한다. version+1."""
+        with self._lock:
+            s = self._sessions.get(session_id)
+            if s is None:
+                return None
+            s.last_access = time.monotonic()
+            s.confirmed_condition = copy.deepcopy(s.editing_condition)
+            s.version += 1
+            return s.version
 
     def new_search(self, session_id: str) -> int | None:
         """새 검색 — 현재 조건·확정 역·결과를 모두 초기화하고 진행 중 해석(inflight)을 무효화한다.

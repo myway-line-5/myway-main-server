@@ -120,34 +120,36 @@ class RouteSegmentDTO(BaseModel):
 
 
 class RouteResultDTO(BaseModel):
-    """앱 RouteResult에 대응 + fare_version 명시."""
+    """앱 RouteResult에 대응. 요금 산정(FarePolicy) 연동 전이라 요금 필드는 null."""
 
     type: RouteType
     segments: list[RouteSegmentDTO]
     total_seconds: int
     total_meters: int
-    total_fare_krw: int
+    total_fare_krw: int | None = Field(None, description="요금 산정(FarePolicy) 연동 전이라 null")
     transfer_count: int
-    fare_version: str = Field(..., description="FarePolicy 산정 결과의 요금 버전")
+    fare_version: str | None = Field(None, description="요금 버전. 요금 제외 합의로 현재 null")
 
 
 class RouteSearchRequest(BaseModel):
-    """POST /v1/routes/search — 탐색 함수 연동 후 구현 예정.
+    """POST /v1/routes/search. 바디의 station_id가 없으면 세션의 확정 역(confirmed_stations)으로 탐색한다."""
 
-    기본은 세션의 확정 조건(confirmed_condition + confirmed_station_ids)으로 탐색한다.
-    """
-
-    origin_station_id: str | None = None
-    destination_station_id: str | None = None
+    origin_station_id: str | None = Field(None, examples=["L2_MAIN_001"])
+    destination_station_id: str | None = Field(None, examples=["L5_539"])
 
 
 class RouteSearchResponse(BaseModel):
     """탐색 미완료(한도 초과 등)는 incomplete로 처리 — 결과를 숨기지 않는다."""
 
-    status: Literal["ok", "no_route", "incomplete"] = Field(
-        ..., description="ok=정상 / no_route=제한을 만족하는 경로 없음 / incomplete=탐색 미완료"
+    status: Literal["ok", "no_route", "incomplete", "error"] = Field(
+        ...,
+        description="ok=정상 / no_route=제한을 만족하는 경로 없음 / incomplete=탐색 미완료 / error=입력 오류(error_code 참조)",
+    )
+    error_code: str | None = Field(
+        None,
+        description="error 시 코드: ORIGIN_NOT_CONFIRMED / DESTINATION_NOT_CONFIRMED / STATION_NOT_FOUND / STATION_INACTIVE / UNSUPPORTED_PREFERENCE / CONSTRAINTS_NOT_SUPPORTED",
     )
     route: RouteResultDTO | None = None
     metrics: dict[str, Any] | None = Field(
-        None, description="상태 수·우위 비교 횟수·최대 큐 크기 등 실측 측정치"
+        None, description="탐색 실측 측정치 (현재는 메인 측 소요시간). 상태 수·우위 비교 횟수·최대 큐 크기는 4번 함수 metrics 반환 추가 후 반영 예정"
     )
