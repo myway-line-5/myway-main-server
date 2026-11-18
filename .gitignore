@@ -8,9 +8,6 @@ __pycache__/
 # 로컬 DB 파일
 *.db
 
-# 팀원 전달용 노트 (로컬 전용)
-TEAM_NOTES.md
-
 # 테스트·빌드
 .pytest_cache/
 dist/
