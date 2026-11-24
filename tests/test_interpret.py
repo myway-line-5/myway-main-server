@@ -121,6 +121,32 @@ def test_provider_header_mismatch_not_applied(ai_client_app):
     assert _session(client).editing_condition is None  # 미반영
 
 
+def test_provider_mismatch_logs_warning(ai_client_app, caplog):
+    """모드 불일치는 설정 오류 가능성이 크므로 경고 로그로 남는다 (시연 전 조기 발견)."""
+    import logging
+
+    client, mock = ai_client_app
+    mock.mock_config["provider"] = "gemini"
+    with caplog.at_level(logging.WARNING, logger="myway.interpret"):
+        body = _post(client).json()
+    assert body["error_code"] == "AI_PROVIDER_MISMATCH"
+    warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
+    assert any("provider mismatch" in r.getMessage() and "expected=mock" in r.getMessage() for r in warnings)
+
+
+def test_request_while_inflight_rejected_without_ai_call(ai_client_app):
+    """같은 세션에 진행 중인 해석이 있으면 AI 호출 없이 business_failure(REQUEST_IN_PROGRESS)."""
+    client, mock = ai_client_app
+    store = client.app.state.session_store
+    _session(client)  # 세션 생성 후 진행 중인 요청이 있다고 가정
+    store.begin_request(SID, "already-inflight")
+    body = _post(client, "두 번째 요청").json()
+    assert body["result"] == "business_failure"
+    assert body["error_code"] == "REQUEST_IN_PROGRESS"
+    assert mock.mock_config["requests"] == []  # AI 호출 자체를 안 함
+    assert set(_session(client).inflight) == {"already-inflight"}  # 기존 진행 중 요청은 유지
+
+
 def test_provider_header_missing_not_applied(ai_client_app):
     client, mock = ai_client_app
     mock.mock_config["provider"] = None  # 헤더 없음

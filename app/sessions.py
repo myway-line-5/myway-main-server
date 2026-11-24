@@ -7,6 +7,8 @@
   version(정수, 상태 변경 시 단조 증가) / inflight(request_id -> 기반 version).
 - AI 응답은 inflight 기반 version이 현재 version과 일치할 때만 반영하고 version+1.
   불일치·타임아웃·취소·검증 실패는 폐기하고 마지막 정상 조건을 유지한다.
+- 같은 세션의 동시 요청: 진행 중인 inflight가 있으면 새 요청은 기록하지 않고 None을 반환한다.
+  호출자는 AI 호출 없이 즉시 실패(REQUEST_IN_PROGRESS)로 응답해 호출 분 낭비를 막는다.
 - 역 확정: 사용자 확인 시 editing_condition의 해당 슬롯을 {raw_name: 선택 역명,
   suggested_name: null}로 갱신하고 version+1. AI 재호출 없음.
 - 조건 모두 초기화: 제한·선호만 해제하고 역은 유지한다.
@@ -65,11 +67,17 @@ class SessionStore:
             self._sessions[key] = s
             return s
 
-    def begin_request(self, session_id: str, request_id: str) -> int:
-        """AI 호출 시작. 기반 version을 inflight에 기록하고 그 값을 반환한다."""
+    def begin_request(self, session_id: str, request_id: str) -> int | None:
+        """AI 호출 시작. 기반 version을 inflight에 기록하고 그 값을 반환한다.
+
+        같은 세션에 이미 진행 중인 요청(inflight)이 있으면 기록하지 않고 None을 반환한다.
+        호출자는 None이면 AI를 호출하지 않고 즉시 실패로 응답해야 한다.
+        """
         with self._lock:
             s = self._sessions[session_id]
             s.last_access = time.monotonic()
+            if s.inflight:
+                return None
             s.inflight[request_id] = s.version
             return s.version
 

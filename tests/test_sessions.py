@@ -44,14 +44,27 @@ def test_ai_response_applied_when_version_matches():
 def test_late_response_is_discarded():
     store = SessionStore()
     s = store.get_or_create(str(uuid.uuid4()))
-    store.begin_request(s.session_id, "req-old")  # 기반 version 0
-    store.begin_request(s.session_id, "req-new")  # 기반 version 0
-    assert store.apply_ai_response(s.session_id, "req-new", {"max_fare_krw": 2000}) is True
+    store.begin_request(s.session_id, "req-1")  # 기반 version 0
+    assert store.apply_ai_response(s.session_id, "req-1", {"max_fare_krw": 2000}) is True
     assert s.version == 1
-    # 늦게 도착한 이전 응답은 폐기되고 마지막 정상 조건이 유지된다
+    # 진행 중 version이 바뀐 요청의 늦은 응답은 폐기되고 마지막 정상 조건이 유지된다
+    store.begin_request(s.session_id, "req-old")  # 기반 version 1
+    store.confirm_conditions(s.session_id)  # version 2로 변경
     assert store.apply_ai_response(s.session_id, "req-old", {"max_fare_krw": 9999}) is False
     assert s.editing_condition == {"max_fare_krw": 2000}
-    assert s.version == 1
+    assert s.version == 2
+
+
+def test_begin_request_blocked_while_another_inflight():
+    """같은 세션에 진행 중인 요청이 있으면 새 begin_request는 None (AI 호출 생략)."""
+    store = SessionStore()
+    s = store.get_or_create(str(uuid.uuid4()))
+    assert store.begin_request(s.session_id, "r1") == 0
+    assert store.begin_request(s.session_id, "r2") is None  # 진행 중 — 기록 안 함
+    assert set(s.inflight) == {"r1"}
+    store.abort_request(s.session_id, "r1")
+    assert store.begin_request(s.session_id, "r2") == 0  # 해제 후에는 가능
+    assert set(s.inflight) == {"r2"}
 
 
 def test_unknown_request_id_is_discarded():

@@ -44,12 +44,17 @@ class InterpretResponse(BaseModel):
     result: Literal["success", "business_failure", "communication_failure", "auth_error"] = Field(
         ...,
         description=(
-            "success=성공(condition 반영됨) / business_failure=업무 실패(error_code 전달) / "
-            "communication_failure=통신 실패(타임아웃·전송 오류·늦은 응답 폐기 — 기존 조건 유지) / "
+            "success=성공(condition 반영됨) / business_failure=업무 실패(error_code 전달. "
+            "같은 세션에 진행 중인 해석이 있으면 AI 호출 없이 REQUEST_IN_PROGRESS) / "
+            "communication_failure=통신 실패(타임아웃·전송 오류·늦은 응답 폐기·모드 불일치 — 기존 조건 유지) / "
             "auth_error=AI 서버 401 (인증 오류)"
         ),
     )
-    error_code: str | None = Field(None, description="business_failure 시 AI가 전달한 오류 코드")
+    error_code: str | None = Field(
+        None,
+        description="오류 코드. business_failure=AI 전달 코드 또는 메인 서버 자체 코드, "
+        "communication_failure=AI_PROVIDER_MISMATCH·STALE_RESPONSE_DISCARDED 등",
+    )
     conditions: dict[str, Any] | None = Field(
         None, description="success 시 세션에 반영된 현재 편집 조건"
     )

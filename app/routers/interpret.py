@@ -8,6 +8,8 @@
   exception=true면 업무 실패(error_code 전달). 401은 내부 인증 오류. 413/422는 입력 오류.
   429/502/504/503은 AI 처리 오류(AI_UNAVAILABLE, 조건 유지). 그 외 비200·통신 실패도 조건 유지.
 - X-AI-Provider가 기대 모드와 다르거나 없으면 조건을 반영하지 않는다 (mock은 모의 시험에서만).
+  불일치는 설정 오류 가능성이 크므로 경고(warning) 로그로 남겨 시연 전에 바로 알 수 있게 한다.
+- 같은 세션에 진행 중인 해석이 있으면 AI를 호출하지 않고 business_failure(REQUEST_IN_PROGRESS)로 즉시 실패.
 - 자동 재시도 0회. 성공 시 세션 version/inflight 규칙으로 반영, 늦은 응답은 폐기.
 - 앱에는 result로 success / business_failure / communication_failure / auth_error를 구분해 내려주고,
   conditions는 앱용 camelCase로 변환해서 전달한다. 문구는 앱이 만든다.
@@ -66,7 +68,10 @@ def interpret(
         return InterpretResponse(result="business_failure", error_code=message_error)
 
     request_id = uuid.uuid4().hex
-    store.begin_request(session.session_id, request_id)
+    base_version = store.begin_request(session.session_id, request_id)
+    if base_version is None:
+        # 같은 세션에 진행 중인 해석이 있음 — AI 호출 없이 바로 실패 (호출 분 낭비 방지)
+        return done("business_failure", "REQUEST_IN_PROGRESS", None)
     # 최초·새 검색은 current_conditions: null. 그 외에는 현재 편집 조건(snake_case) 전체.
     current_conditions = session.editing_condition
 
@@ -114,6 +119,14 @@ def interpret(
     # X-AI-Provider 기대 모드 검증 — 누락·불일치 시 미반영
     if provider not in VALID_PROVIDERS or provider != expected_provider:
         store.abort_request(session.session_id, request_id)
+        # 설정 오류 가능성 — AI 호출은 이미 사용된 뒤라 경고 로그로 시연 전에 바로 알린다
+        log.warning(
+            "interpret request_id=%s AI provider mismatch (expected=%s actual=%s) — "
+            "MYWAY_EXPECTED_AI_PROVIDER와 AI 서버 모드를 확인하세요. 호출은 폐기됨",
+            request_id,
+            expected_provider,
+            provider,
+        )
         return done("communication_failure", "AI_PROVIDER_MISMATCH", provider)
 
     error = validate_ai_conditions(body.get("conditions"))

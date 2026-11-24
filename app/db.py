@@ -4,8 +4,13 @@
 - Station(station_id PK, group_id, name, line, is_active)
 - RouteEdge(edge_id PK, from_station_id, to_station_id, seconds, meters, is_transfer)
   (SQL 예약어 FROM 회피를 위해 컬럼명은 from_station_id / to_station_id)
+- StationFacility(station_id·facility_code PK, available) — 역 편의시설 (Y/N)
+- TrainSchedule(id PK, station_id, line, day_type, direction, is_express,
+                  arrival_time, departure_time, origin, destination) — 열차運行시각표
+- StationFirstLast(station_id·line·direction·day_type PK, first_departure, last_departure)
+  — 첫차·막차 집계 (빠른 조회용)
 - meta(key PK, value) — 적재 시점에 data_version·fare_version·적재일·출처 기록
-- 인덱스: Station(name)
+- 인덱스: Station(name), TrainSchedule(station_id, day_type, direction)
 """
 from __future__ import annotations
 
@@ -28,11 +33,41 @@ CREATE TABLE IF NOT EXISTS RouteEdge (
     meters          INTEGER NOT NULL CHECK (meters > 0),
     is_transfer     INTEGER NOT NULL DEFAULT 0 CHECK (is_transfer IN (0, 1))
 );
+CREATE TABLE IF NOT EXISTS StationFacility (
+    station_id    TEXT NOT NULL REFERENCES Station(station_id),
+    facility_code TEXT NOT NULL,
+    facility_name TEXT NOT NULL,
+    available     INTEGER NOT NULL CHECK (available IN (0, 1)),
+    PRIMARY KEY (station_id, facility_code)
+);
+CREATE TABLE IF NOT EXISTS TrainSchedule (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    station_id      TEXT NOT NULL REFERENCES Station(station_id),
+    line            TEXT NOT NULL,
+    day_type        TEXT NOT NULL CHECK (day_type IN ('WEEKDAY', 'SATURDAY', 'HOLIDAY')),
+    direction       TEXT NOT NULL,
+    is_express      INTEGER NOT NULL DEFAULT 0 CHECK (is_express IN (0, 1)),
+    arrival_time    TEXT,
+    departure_time  TEXT,
+    origin_station  TEXT,
+    destination_station TEXT
+);
+CREATE TABLE IF NOT EXISTS StationFirstLast (
+    station_id      TEXT NOT NULL REFERENCES Station(station_id),
+    line            TEXT NOT NULL,
+    direction       TEXT NOT NULL,
+    day_type        TEXT NOT NULL,
+    first_departure TEXT NOT NULL,
+    last_departure  TEXT NOT NULL,
+    PRIMARY KEY (station_id, line, direction, day_type)
+);
 CREATE TABLE IF NOT EXISTS meta (
     key   TEXT PRIMARY KEY,
     value TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_station_name ON Station(name);
+CREATE INDEX IF NOT EXISTS idx_train_schedule_station ON TrainSchedule(station_id, day_type, direction);
+CREATE INDEX IF NOT EXISTS idx_train_schedule_departure ON TrainSchedule(station_id, day_type, departure_time);
 """
 
 
