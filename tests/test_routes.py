@@ -84,7 +84,7 @@ def test_search_ok_with_explicit_ids(route_client):
     assert route["transfer_count"] == 1
     assert route["segments"][2]["is_transfer"] is True
     assert route["segments"][0]["line_name"] == "2"
-    assert route["total_fare_krw"] is None
+    assert route["total_fare_krw"] == 1550
     assert route["fare_version"] is None
     assert body["metrics"]["elapsed_ms"] < 1000
 
@@ -300,7 +300,7 @@ def test_search_min_transfer_with_constraints_rejected(route_db_path, mock_ai):
         assert resp.json()["error_code"] == "CONSTRAINTS_NOT_SUPPORTED"
 
 
-def test_search_fare_preference_unsupported(route_db_path, mock_ai):
+def test_search_fare_preference_ok(route_db_path, mock_ai):
     port = mock_ai.server_address[1]
     mock_ai.mock_config["conditions"] = {
         "stations": {
@@ -324,5 +324,63 @@ def test_search_fare_preference_unsupported(route_db_path, mock_ai):
         c.post("/v1/stations/confirm", json={"slot": "origin", "station_id": "T_A"}, headers=headers)
         c.post("/v1/stations/confirm", json={"slot": "destination", "station_id": "T_D"}, headers=headers)
         resp = c.post("/v1/routes/search", json={}, headers=headers)
-        assert resp.json()["status"] == "error"
-        assert resp.json()["error_code"] == "UNSUPPORTED_PREFERENCE"
+        body = resp.json()
+        assert body["status"] == "ok"
+        assert body["route"]["type"] == "MIN_FARE"
+        assert body["route"]["total_fare_krw"] == 1550
+
+
+def test_search_max_fare_constraint_exceeded(route_db_path, mock_ai):
+    port = mock_ai.server_address[1]
+    mock_ai.mock_config["conditions"] = {
+        "stations": {
+            "origin": {"raw_name": "테스트A", "suggested_name": None},
+            "destination": {"raw_name": "테스트D", "suggested_name": None},
+        },
+        "constraints": {"max_duration_minutes": None, "max_transfers": None, "max_fare_krw": 1000},
+        "preference": None,
+    }
+    settings = Settings(
+        env={
+            **TEST_ENV_BASE,
+            "AI_SERVER_BASE_URL": f"http://127.0.0.1:{port}",
+            "MYWAY_DB_PATH": route_db_path,
+        }
+    )
+    application = create_app(settings)
+    with TestClient(application) as c:
+        headers = _session_headers(c)
+        c.post("/v1/conditions/interpret", json={"user_message": "테스트A에서 테스트D까지 1000원 안에"}, headers=headers)
+        c.post("/v1/stations/confirm", json={"slot": "origin", "station_id": "T_A"}, headers=headers)
+        c.post("/v1/stations/confirm", json={"slot": "destination", "station_id": "T_D"}, headers=headers)
+        resp = c.post("/v1/routes/search", json={}, headers=headers)
+        assert resp.json()["status"] == "no_route"
+
+
+def test_search_max_fare_constraint_satisfied(route_db_path, mock_ai):
+    port = mock_ai.server_address[1]
+    mock_ai.mock_config["conditions"] = {
+        "stations": {
+            "origin": {"raw_name": "테스트A", "suggested_name": None},
+            "destination": {"raw_name": "테스트D", "suggested_name": None},
+        },
+        "constraints": {"max_duration_minutes": None, "max_transfers": None, "max_fare_krw": 2000},
+        "preference": None,
+    }
+    settings = Settings(
+        env={
+            **TEST_ENV_BASE,
+            "AI_SERVER_BASE_URL": f"http://127.0.0.1:{port}",
+            "MYWAY_DB_PATH": route_db_path,
+        }
+    )
+    application = create_app(settings)
+    with TestClient(application) as c:
+        headers = _session_headers(c)
+        c.post("/v1/conditions/interpret", json={"user_message": "테스트A에서 테스트D까지 2000원 안에"}, headers=headers)
+        c.post("/v1/stations/confirm", json={"slot": "origin", "station_id": "T_A"}, headers=headers)
+        c.post("/v1/stations/confirm", json={"slot": "destination", "station_id": "T_D"}, headers=headers)
+        resp = c.post("/v1/routes/search", json={}, headers=headers)
+        body = resp.json()
+        assert body["status"] == "ok"
+        assert body["route"]["total_fare_krw"] == 1550

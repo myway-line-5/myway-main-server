@@ -125,15 +125,15 @@ class RouteSegmentDTO(BaseModel):
 
 
 class RouteResultDTO(BaseModel):
-    """앱 RouteResult에 대응. 요금 산정(FarePolicy) 연동 전이라 요금 필드는 null."""
+    """앱 RouteResult에 대응."""
 
     type: RouteType
     segments: list[RouteSegmentDTO]
     total_seconds: int
     total_meters: int
-    total_fare_krw: int | None = Field(None, description="요금 산정(FarePolicy) 연동 전이라 null")
+    total_fare_krw: int | None = Field(None, description="총 요금(원). 거리비례 운임 기준 (10km 이하 1,550원)")
     transfer_count: int
-    fare_version: str | None = Field(None, description="요금 버전. 요금 제외 합의로 현재 null")
+    fare_version: str | None = Field(None, description="요금 버전 (meta 테이블의 fare_version, 없으면 null)")
 
 
 class RouteSearchRequest(BaseModel):

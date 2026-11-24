@@ -56,6 +56,9 @@ def search_route(
     max_transfers = constraints.get("max_transfers")
     if not isinstance(max_transfers, int):
         max_transfers = None
+    max_fare_krw = constraints.get("max_fare_krw")
+    if not isinstance(max_fare_krw, int):
+        max_fare_krw = None
 
     optimization = "shortest_time"
     if isinstance(preference, str):
@@ -63,7 +66,7 @@ def search_route(
         if "transfer" in p or "환승" in preference:
             optimization = "minimum_transfer"
         elif "fare" in p or "요금" in preference:
-            return RouteSearchResponse(status="error", error_code="UNSUPPORTED_PREFERENCE")
+            optimization = "minimum_fare"
 
     t0 = time.perf_counter()
     try:
@@ -72,6 +75,7 @@ def search_route(
             destination_id,
             max_duration_seconds=max_duration_seconds,
             max_transfers=max_transfers,
+            max_fare_krw=max_fare_krw,
             optimization=optimization,
         )
     except Exception:
@@ -111,14 +115,25 @@ def search_route(
             )
         )
 
+    total_fare_krw = routing.functions["calculate_fare"](total_meters)
+    db = request.app.state.db
+    fare_version_row = db.query_one("SELECT value FROM meta WHERE key = 'fare_version'")
+    fare_version = fare_version_row["value"] if fare_version_row else None
+
+    route_type = RouteType.SHORTEST_TIME
+    if optimization == "minimum_transfer":
+        route_type = RouteType.MIN_TRANSFERS
+    elif optimization == "minimum_fare":
+        route_type = RouteType.MIN_FARE
+
     route = RouteResultDTO(
-        type=RouteType.MIN_TRANSFERS if optimization == "minimum_transfer" else RouteType.SHORTEST_TIME,
+        type=route_type,
         segments=segments,
         total_seconds=int(result["total_time"]),
         total_meters=total_meters,
-        total_fare_krw=None,
+        total_fare_krw=total_fare_krw,
         transfer_count=transfer_count,
-        fare_version=None,
+        fare_version=fare_version,
     )
     log.info(
         "route_search request_id=%s status=ok elapsed_ms=%.0f segments=%d transfers=%d within_1s=%s",

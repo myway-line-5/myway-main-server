@@ -15,12 +15,15 @@ def _load_algorithm_functions(algorithm_src_path: str) -> dict[str, Any]:
         sys.path.insert(0, src)
     from constrained_dijkstra import constrained_dijkstra
     from dijkstra import dijkstra
+    from minimum_cost import calculate_fare, minimum_cost
     from minimum_transfer import minimum_transfer
 
     return {
         "dijkstra": dijkstra,
         "constrained_dijkstra": constrained_dijkstra,
         "minimum_transfer": minimum_transfer,
+        "minimum_cost": minimum_cost,
+        "calculate_fare": calculate_fare,
     }
 
 
@@ -60,20 +63,41 @@ class RoutingGraph:
         destination_id: str,
         max_duration_seconds: int | None = None,
         max_transfers: int | None = None,
+        max_fare_krw: int | None = None,
         optimization: str = "shortest_time",
     ) -> dict[str, Any] | None:
         fns = self.functions
-        has_constraints = max_duration_seconds is not None or max_transfers is not None
+        has_constraints = (
+            max_duration_seconds is not None
+            or max_transfers is not None
+            or max_fare_krw is not None
+        )
+        if optimization == "minimum_fare":
+            result = fns["minimum_cost"](self, origin_id, destination_id)
+            if result is not None and max_fare_krw is not None:
+                if result.get("total_fare", 0) > max_fare_krw:
+                    return None
+            return result
         if optimization == "minimum_transfer":
             if has_constraints:
                 return {"status": "unsupported"}
             return fns["minimum_transfer"](self, origin_id, destination_id)
         if has_constraints:
-            return fns["constrained_dijkstra"](
+            result = fns["constrained_dijkstra"](
                 self,
                 origin_id,
                 destination_id,
                 max_time=max_duration_seconds,
                 max_transfers=max_transfers,
             )
-        return fns["dijkstra"](self, origin_id, destination_id)
+            if result is not None and max_fare_krw is not None:
+                total_meters = sum(int(step.get("distance") or 0) for step in result["route"])
+                if fns["calculate_fare"](total_meters) > max_fare_krw:
+                    return None
+            return result
+        result = fns["dijkstra"](self, origin_id, destination_id)
+        if result is not None and max_fare_krw is not None:
+            total_meters = sum(int(step.get("distance") or 0) for step in result["route"])
+            if fns["calculate_fare"](total_meters) > max_fare_krw:
+                return None
+        return result
