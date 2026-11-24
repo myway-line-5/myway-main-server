@@ -60,14 +60,6 @@ def load_station_index(db: Database) -> dict[tuple[str, str], str]:
     return index
 
 
-def load_facility_index(db: Database) -> dict[str, str]:
-    """fare_station_code(0 제거) → station_id 매칭 인덱스 (fallback)."""
-    index: dict[str, str] = {}
-    for r in db.query_all("SELECT station_id, fare_station_code FROM Station"):
-        pass  # Station 테이블에 fare_station_code 컬럼 없음 — stations.csv에서 별도 로드
-    return index
-
-
 def match_station(
     name: str, line: str, station_index: dict[tuple[str, str], str], code_index: dict[str, str], code: str | None
 ) -> str | None:
@@ -105,10 +97,12 @@ def load_detail(db_path: str, temp_dir: Path, stations_csv: Path | None = None) 
             timetable_files = sorted(temp_dir.glob("서울교통공사_서울 도시철도 열차운행시각표_*.csv"))
             if not timetable_files:
                 raise FileNotFoundError(f"열차운행시각표 CSV 없음: {temp_dir}")
+            # 파일명 날짜 기준 최신본 선택 (예: _20260901 가 _240810 보다 최신)
+            latest = max(timetable_files, key=lambda p: p.name)
             schedule_rows: list[tuple] = []
             first_last: dict[tuple[str, str, str, str], list[str]] = {}
 
-            for row in _read_csv(timetable_files[0]):
+            for row in _read_csv(latest):
                 line = row["호선"].strip()
                 if line not in TARGET_LINES:
                     continue

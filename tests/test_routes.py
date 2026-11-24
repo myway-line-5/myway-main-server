@@ -384,3 +384,63 @@ def test_search_max_fare_constraint_satisfied(route_db_path, mock_ai):
         body = resp.json()
         assert body["status"] == "ok"
         assert body["route"]["total_fare_krw"] == 1550
+
+
+def test_min_fare_with_duration_constraint_rejected(route_db_path, mock_ai):
+    """버그2 회귀: minimum_fare + 시간 제약은 무시하지 않고 CONSTRAINTS_NOT_SUPPORTED."""
+    port = mock_ai.server_address[1]
+    mock_ai.mock_config["conditions"] = {
+        "stations": {
+            "origin": {"raw_name": "테스트A", "suggested_name": None},
+            "destination": {"raw_name": "테스트D", "suggested_name": None},
+        },
+        "constraints": {"max_duration_minutes": 1, "max_transfers": None, "max_fare_krw": None},
+        "preference": "min_fare",
+    }
+    settings = Settings(
+        env={
+            **TEST_ENV_BASE,
+            "AI_SERVER_BASE_URL": f"http://127.0.0.1:{port}",
+            "MYWAY_DB_PATH": route_db_path,
+        }
+    )
+    application = create_app(settings)
+    with TestClient(application) as c:
+        headers = _session_headers(c)
+        c.post("/v1/conditions/interpret", json={"user_message": "1분 안에 가장 싸게"}, headers=headers)
+        c.post("/v1/stations/confirm", json={"slot": "origin", "station_id": "T_A"}, headers=headers)
+        c.post("/v1/stations/confirm", json={"slot": "destination", "station_id": "T_D"}, headers=headers)
+        resp = c.post("/v1/routes/search", json={}, headers=headers)
+        assert resp.json()["status"] == "error"
+        assert resp.json()["error_code"] == "CONSTRAINTS_NOT_SUPPORTED"
+
+
+def test_fare_uses_ride_distance_not_transfer(route_db_path):
+    """버그1 회귀: 응답 요금은 승차(RIDE) 거리 기준이어야 환승 거리 포함해 과대산정 안 됨.
+
+    T_A→T_B(500m)→T_C(500m)→T_D(환승 300m): 전체 1,300m이면 10km 이하라 둘 다 1,550원이라 区分 안 됨.
+    대신 환승 간선이 10km를 넘기는ケース를 만들어 요금 경계에서 차이를 확인한다.
+    """
+    # 별도 DB: 승차 9,900m + 환승 200m = 전체 10,100m (환승 포함하면 1,650원, 승차만 1,550원)
+    import sqlite3
+    path = route_db_path
+    db = Database(path)
+    db.execute("DELETE FROM RouteEdge")
+    db.execute("INSERT INTO RouteEdge VALUES ('E10','T_A','T_B',600,9900,0)")
+    db.execute("INSERT INTO RouteEdge VALUES ('E11','T_B','T_A',600,9900,0)")
+    db.execute("INSERT INTO RouteEdge VALUES ('E12','T_B','T_D',60,200,1)")
+    db.execute("INSERT INTO RouteEdge VALUES ('E13','T_D','T_B',60,200,1)")
+    db.close()
+
+    settings = Settings(env={**TEST_ENV_BASE, "MYWAY_DB_PATH": path})
+    application = create_app(settings)
+    with TestClient(application) as c:
+        headers = _session_headers(c)
+        c.post("/v1/stations/confirm", json={"slot": "origin", "station_id": "T_A"}, headers=headers)
+        c.post("/v1/stations/confirm", json={"slot": "destination", "station_id": "T_D"}, headers=headers)
+        resp = c.post("/v1/routes/search", json={"optimization": "minimum_fare"}, headers=headers)
+        body = resp.json()
+        assert body["status"] == "ok"
+        # 승차 9,900m → 1,550원. 환승 200m까지 더하면 10,100m → 1,650원이 나오면 버그
+        assert body["route"]["total_fare_krw"] == 1550
+        assert body["route"]["total_meters"] == 10100  # 환승 포함 전체 거리는別途 표시
