@@ -55,8 +55,15 @@ def test_after_reset_current_conditions_keeps_stations_but_null_constraints(ai_c
     assert cond["preference"] is None
 
     # 다음 해석 요청: current_conditions가 null이 아니고 stations를 포함, constraints는 전부 null
+    # (mock 응답의 역 표현도 확정 역과 동일하게 유지 — 이슈 #2로 raw_name이 바뀌면 확정이 해제되므로)
     mock.mock_config["requests"].clear()
-    mock.mock_config["conditions"] = DEFAULT_CONDITIONS
+    mock.mock_config["conditions"] = {
+        **DEFAULT_CONDITIONS,
+        "stations": {
+            "origin": {"raw_name": "시청", "suggested_name": None},
+            "destination": {"raw_name": "여의도", "suggested_name": None},
+        },
+    }
     _post(client)
     sent = mock.mock_config["requests"][0]["body"]["current_conditions"]
     assert sent is not None

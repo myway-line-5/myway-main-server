@@ -11,6 +11,8 @@
   호출자는 AI 호출 없이 즉시 실패(REQUEST_IN_PROGRESS)로 응답해 호출 분 낭비를 막는다.
 - 역 확정: 사용자 확인 시 editing_condition의 해당 슬롯을 {raw_name: 선택 역명,
   suggested_name: null}로 갱신하고 version+1. AI 재호출 없음.
+- AI 응답 반영 시 역슬롯의 raw_name이 이전 조건과 달라지거나 null이 되면 해당 슬롯의
+  확정을 해제한다 — 문장으로 역을 바꿔도 예전 확정 역 ID로 경로 탐색되지 않게 (이슈 #2).
 - 조건 모두 초기화: 제한·선호만 해제하고 역은 유지한다.
 - 새 검색: 현재 조건·확정 역·결과를 모두 초기화하고 진행 중 해석(inflight)을 무효화한다.
 """
@@ -29,6 +31,14 @@ from .conditions import CONSTRAINT_RANGES, empty_conditions
 
 SESSION_HEADER = "X-Session-ID"
 SLOTS = ("origin", "destination")
+
+
+def _slot_raw_name(station: Any) -> str | None:
+    """역슬롯 객체에서 raw_name만 꺼낸다. null 슬롯·비정상 객체는 None."""
+    if isinstance(station, dict):
+        raw = station.get("raw_name")
+        return raw if isinstance(raw, str) else None
+    return None
 
 
 @dataclass
@@ -87,6 +97,11 @@ class SessionStore:
         """AI 성공 응답을 editing_condition에 반영한다.
 
         기반 version이 현재 version과 다르면(늦은 응답) 폐기하고 False를 반환한다.
+        역슬롯의 raw_name이 이전 조건과 달라졌거나 null이 되면 해당 슬롯의 확정을 해제한다
+        (이슈 #2: 문장으로 역을 바꿔도 기존 확정 역 ID로 경로 탐색되는 문제 방지.
+        설계서 4.2.3 — 새 역을 아직 확정하지 못한 경우 기존 탐색용 확인 상태를 자동 교체하지
+        않고 탐색을 보류한다). suggested_name만 바뀐 교정 제안은 raw_name이 유지되므로
+        확정은 풀리지 않는다.
         """
         with self._lock:
             s = self._sessions.get(session_id)
@@ -96,6 +111,13 @@ class SessionStore:
             s.last_access = time.monotonic()
             if base_version != s.version:
                 return False  # 늦은 응답 폐기 — 마지막 정상 조건 유지
+            old_stations = (s.editing_condition or {}).get("stations") or {}
+            new_stations = conditions.get("stations") or {}
+            for slot in SLOTS:
+                if slot not in s.confirmed_stations:
+                    continue
+                if _slot_raw_name(new_stations.get(slot)) != _slot_raw_name(old_stations.get(slot)):
+                    del s.confirmed_stations[slot]  # 역 표현 변경/초기화 → 확정 해제
             s.editing_condition = conditions
             s.version += 1
             return True

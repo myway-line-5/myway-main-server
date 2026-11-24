@@ -218,3 +218,66 @@ def test_get_session_dependency_header_flow(client):
 
     r4 = client.get("/_test/session", headers={"X-Session-ID": "not-a-uuid"})
     assert r4.json()["session_id"] != sid
+
+
+def _slot(name, suggested=None):
+    return {"raw_name": name, "suggested_name": suggested} if name is not None else None
+
+
+def _conds(origin=None, destination=None):
+    return {
+        "stations": {"origin": _slot(origin), "destination": _slot(destination)},
+        "constraints": {"max_duration_minutes": None, "max_transfers": None, "max_fare_krw": None},
+        "preference": None,
+    }
+
+
+def test_ai_response_releases_confirmation_when_raw_name_changes():
+    """이슈 #2: 문장으로 역을 바꾸면 기존 확정 역 ID가 해제된다."""
+    store = SessionStore()
+    s = store.get_or_create(str(uuid.uuid4()))
+    store.begin_request(s.session_id, "r1")
+    store.apply_ai_response(s.session_id, "r1", _conds("강남", "여의도"))
+    store.confirm_station_slot(s.session_id, "origin", "L2_MAIN_022", "강남")
+    assert s.confirmed_stations == {"origin": "L2_MAIN_022"}
+    # 문장으로 출발역을 잠실로 변경
+    store.begin_request(s.session_id, "r2")
+    ok = store.apply_ai_response(s.session_id, "r2", _conds("잠실", "여의도"))
+    assert ok is True
+    assert s.confirmed_stations == {}  # 출발역 확정 해제 — 경로 탐색이 예전 역으로 진행되지 않게
+    assert s.editing_condition["stations"]["origin"]["raw_name"] == "잠실"
+
+
+def test_ai_response_keeps_confirmation_when_raw_name_unchanged():
+    """역 표현이 유지되면(교정 제안만 변경) 확정 ID는 유지된다 — 시간·요금·선호 수정과 동일."""
+    store = SessionStore()
+    s = store.get_or_create(str(uuid.uuid4()))
+    store.begin_request(s.session_id, "r1")
+    store.apply_ai_response(s.session_id, "r1", _conds("강남", "여의도"))
+    store.confirm_station_slot(s.session_id, "origin", "L2_MAIN_022", "강남")
+    # 같은 raw_name + 교정 제안만 다른 응답
+    store.begin_request(s.session_id, "r2")
+    ok = store.apply_ai_response(
+        s.session_id,
+        "r2",
+        {
+            "stations": {"origin": _slot("강남", "강남역"), "destination": _slot("여의도")},
+            "constraints": {"max_duration_minutes": 40, "max_transfers": None, "max_fare_krw": None},
+            "preference": None,
+        },
+    )
+    assert ok is True
+    assert s.confirmed_stations == {"origin": "L2_MAIN_022"}  # 확정 유지
+
+
+def test_ai_response_releases_confirmation_when_slot_becomes_null():
+    """'출발역 초기화'처럼 슬롯이 null이 되면 확정 해제."""
+    store = SessionStore()
+    s = store.get_or_create(str(uuid.uuid4()))
+    store.begin_request(s.session_id, "r1")
+    store.apply_ai_response(s.session_id, "r1", _conds("강남", "여의도"))
+    store.confirm_station_slot(s.session_id, "origin", "L2_MAIN_022", "강남")
+    store.begin_request(s.session_id, "r2")
+    store.apply_ai_response(s.session_id, "r2", _conds(None, "여의도"))
+    assert s.confirmed_stations == {}
+    assert s.editing_condition["stations"]["origin"] is None

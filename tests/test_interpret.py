@@ -268,6 +268,38 @@ def test_invalid_user_message(ai_client_app, message):
     assert mock.mock_config["requests"] == []  # AI 호출 자체를 안 함
 
 
+def test_route_search_blocked_after_ai_changes_confirmed_station(ai_client_app):
+    """이슈 #2: 문장으로 출발역을 바꾸면 예전 확정 역으로 탐색하지 않고 미확정 오류를 반환한다."""
+    client, mock = ai_client_app
+    sid = str(uuid.uuid4())
+    headers = {"X-Session-ID": sid}
+    # 최초 해석 성공 (강남→여의도)
+    r = client.post("/v1/conditions/interpret", json={"user_message": "강남에서 여의도"}, headers=headers)
+    assert r.json()["result"] == "success"
+    # 출발역 확정 (시청 — fixture에 있는 역)
+    c = client.post(
+        "/v1/stations/confirm", json={"slot": "origin", "station_id": "L2_MAIN_001"}, headers=headers
+    )
+    assert c.json()["result"] == "success"
+    # 문장으로 출발역을 다른 역으로 변경 (mock 응답 조건 교체)
+    mock.mock_config["conditions"] = {
+        **DEFAULT_CONDITIONS,
+        "stations": {
+            "origin": {"raw_name": "잠실", "suggested_name": None},
+            "destination": {"raw_name": "여의도", "suggested_name": None},
+        },
+    }
+    r = client.post(
+        "/v1/conditions/interpret", json={"user_message": "출발역을 잠실로 바꿔 줘"}, headers=headers
+    )
+    assert r.json()["result"] == "success"
+    assert r.json()["conditions"]["origin"]["rawName"] == "잠실"
+    # 경로 탐색 — 예전 확정 역(시청)이 아니라 미확정 오류
+    s = client.post("/v1/routes/search", json={}, headers=headers).json()
+    assert s["status"] == "error"
+    assert s["error_code"] == "ORIGIN_NOT_CONFIRMED"
+
+
 def test_stale_response_discarded(ai_client_app):
     """AI 응답 도착 전에 세션 version이 바뀌면(늦은 응답) 폐기하고 마지막 정상 조건 유지."""
     client, mock = ai_client_app
