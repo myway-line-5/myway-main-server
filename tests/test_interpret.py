@@ -88,12 +88,25 @@ def test_401_maps_to_auth_error(ai_client_app):
     assert _session(client).editing_condition is None
 
 
-def test_422_maps_to_business_failure(ai_client_app):
+def test_422_input_limit_exceeded_is_business_failure(ai_client_app):
+    """422 + INPUT_LIMIT_EXCEEDED(문장 길이 초과)는 사용자 입력 오류 → business_failure (이슈 #3)."""
     client, mock = ai_client_app
     mock.mock_config["mode"] = "bad_request"
+    mock.mock_config["error_code"] = "INPUT_LIMIT_EXCEEDED"
     body = _post(client).json()
     assert body["result"] == "business_failure"
+    assert body["error_code"] == "INPUT_LIMIT_EXCEEDED"
+    assert _session(client).editing_condition is None
+
+
+def test_422_invalid_request_is_communication_failure(ai_client_app):
+    """422 + INVALID_REQUEST(메인이 보낸 요청 형식 오류)는 서버 문제 → communication_failure (이슈 #3)."""
+    client, mock = ai_client_app
+    mock.mock_config["mode"] = "bad_request"  # 기본 error_code=INVALID_REQUEST
+    body = _post(client).json()
+    assert body["result"] == "communication_failure"
     assert body["error_code"] == "INVALID_REQUEST"
+    assert _session(client).editing_condition is None  # 조건 유지(폐기) — 마지막 정상 조건 그대로
 
 
 def test_429_passes_body_error_code_through(ai_client_app):
@@ -207,13 +220,43 @@ def _full_constraints(**override):
         _full_constraints(max_fare_krw=1.5),  # 정수 아님
     ],
 )
-def test_condition_range_violations_rejected(ai_client_app, constraints):
+def test_condition_range_violations_are_communication_failure(ai_client_app, constraints):
+    """AI가 반환한 조건이 메인 검증(범위 등)을 통과 못하면 AI 출력 문제 → communication_failure (이슈 #3)."""
     client, mock = ai_client_app
     mock.mock_config["conditions"] = {**DEFAULT_CONDITIONS, "constraints": constraints}
     body = _post(client).json()
-    assert body["result"] == "business_failure"
+    assert body["result"] == "communication_failure"
     assert body["error_code"] == "INVALID_CONDITION_RANGE"
-    assert _session(client).editing_condition is None  # 검증 실패도 폐기
+    assert _session(client).editing_condition is None  # 검증 실패도 미반영 — 마지막 정상 조건 유지
+
+
+def test_422_invalid_request_logs_warning(ai_client_app, caplog):
+    """서버 오류로 분류되는 422는 request_id와 error_code가 경고 로그에 남는다 (이슈 #3)."""
+    import logging
+
+    client, mock = ai_client_app
+    mock.mock_config["mode"] = "bad_request"
+    with caplog.at_level(logging.WARNING, logger="myway.interpret"):
+        body = _post(client).json()
+    assert body["result"] == "communication_failure"
+    warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
+    assert any("request_id=" in r.getMessage() and "INVALID_REQUEST" in r.getMessage() for r in warnings)
+
+
+def test_condition_validation_failure_logs_warning(ai_client_app, caplog):
+    """AI 조건 검증 실패는 request_id와 오류 코드가 경고 로그에 남는다 (이슈 #3)."""
+    import logging
+
+    client, mock = ai_client_app
+    mock.mock_config["conditions"] = {
+        **DEFAULT_CONDITIONS,
+        "constraints": _full_constraints(max_duration_minutes=0),
+    }
+    with caplog.at_level(logging.WARNING, logger="myway.interpret"):
+        body = _post(client).json()
+    assert body["result"] == "communication_failure"
+    warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
+    assert any("request_id=" in r.getMessage() and "INVALID_CONDITION_RANGE" in r.getMessage() for r in warnings)
 
 
 @pytest.mark.parametrize("message", ["", "   ", "x" * 1001])

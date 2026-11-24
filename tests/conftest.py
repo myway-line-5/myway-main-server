@@ -107,7 +107,11 @@ class MockAiHandler(BaseHTTPRequestHandler):
             self._send(500, {"exception": True, "error_code": "INTERNAL", "conditions": None})
             return
         if mode == "bad_request":
-            self._send(422, {"exception": True, "error_code": "INVALID_REQUEST", "conditions": None})
+            # cfg에 error_code를 주면 덮어쓴다 (INPUT_LIMIT_EXCEEDED 등 422 세분 테스트용)
+            self._send(
+                422,
+                {"exception": True, "error_code": cfg.get("error_code", "INVALID_REQUEST"), "conditions": None},
+            )
             return
         if mode == "rate_limited":
             self._send(429, {"exception": True, "error_code": "RATE_LIMITED", "conditions": None})

@@ -5,7 +5,10 @@
   최초·새 검색은 current_conditions: null (필드 자체를 null로 전송, 생략 아님).
 - 응답 판정: 성공은 HTTP 200 + exception=false(boolean) + error_code=null + 전체 conditions.
   exception 필드가 없거나 boolean이 아니면 비정상 응답으로 미반영.
-  exception=true면 업무 실패(error_code 전달). 401은 내부 인증 오류. 413/422는 입력 오류.
+  exception=true면 업무 실패(error_code 전달). 401은 내부 인증 오류.
+  413(본문 용량 초과)은 입력 한도 business_failure. 422는 본문의 error_code로 세분:
+  INPUT_LIMIT_EXCEEDED(문장 길이 초과)만 business_failure, 그 밖(INVALID_REQUEST 등 요청 형식 오류)은
+  메인 서버 문제이므로 communication_failure. AI 조건 검증 실패도 communication_failure.
   429/502/504/503은 AI 처리 오류(AI_UNAVAILABLE, 조건 유지). 그 외 비200·통신 실패도 조건 유지.
 - X-AI-Provider가 기대 모드와 다르거나 없으면 조건을 반영하지 않는다 (mock은 모의 시험에서만).
   불일치는 설정 오류 가능성이 크므로 경고(warning) 로그로 남겨 시연 전에 바로 알 수 있게 한다.
@@ -31,8 +34,10 @@ router = APIRouter(tags=["conditions"])
 log = logging.getLogger("myway.interpret")
 
 # 표 4-12 상태 코드 분류
-STATUS_BUSINESS = {413, 422}  # 입력/요청 오류 → business_failure
+STATUS_BUSINESS = {413}  # 본문 용량 초과(입력 한도) → business_failure
 STATUS_AI_UNAVAILABLE = {429, 502, 504, 503}  # AI 처리 오류 → communication_failure
+# 422는 본문의 error_code로 세분한다: INPUT_LIMIT_EXCEEDED(문장 길이 초과)만 business_failure,
+# 그 밖(INVALID_REQUEST 등 요청 형식 오류)은 메인이 보낸 요청이 틀린 서버 오류 → communication_failure
 VALID_PROVIDERS = ("mock", "gemini")
 
 
@@ -89,7 +94,21 @@ def interpret(
     if resp.status in STATUS_BUSINESS:
         store.abort_request(session.session_id, request_id)
         code = resp.body.get("error_code") if isinstance(resp.body, dict) else None
-        return done("business_failure", code if isinstance(code, str) else "INVALID_REQUEST", provider)
+        return done("business_failure", code if isinstance(code, str) else "INPUT_LIMIT_EXCEEDED", provider)
+    if resp.status == 422:
+        store.abort_request(session.session_id, request_id)
+        code = resp.body.get("error_code") if isinstance(resp.body, dict) else None
+        code = code if isinstance(code, str) and code else "INVALID_REQUEST"
+        if code == "INPUT_LIMIT_EXCEEDED":
+            # 문장 길이 초과 — 사용자가 입력을 조정해야 하는 사용자 오류
+            return done("business_failure", code, provider)
+        # INVALID_REQUEST 등 — 메인→AI 요청 형식 오류로 추정되는 서버 문제 (이슈 #3)
+        log.warning(
+            "interpret request_id=%s AI 422 error_code=%s — 메인→AI 요청 형식 오류로 추정, 조건 유지",
+            request_id,
+            code,
+        )
+        return done("communication_failure", code, provider)
     if resp.status in STATUS_AI_UNAVAILABLE:
         store.abort_request(session.session_id, request_id)
         # 표 4-12: 503 + SERVICE_NOT_CONFIGURED(설정 오류)와 503 + AI_UNAVAILABLE(처리 오류) 구분 —
@@ -132,7 +151,13 @@ def interpret(
     error = validate_ai_conditions(body.get("conditions"))
     if error:
         store.abort_request(session.session_id, request_id)
-        return done("business_failure", error, provider)
+        # AI가 반환한 조건이 메인 검증을 통과하지 못함 — AI 출력 문제지 사용자 오류가 아님 (이슈 #3)
+        log.warning(
+            "interpret request_id=%s AI 조건 검증 실패 error_code=%s — AI 응답 문제로 조건 유지",
+            request_id,
+            error,
+        )
+        return done("communication_failure", error, provider)
 
     applied = store.apply_ai_response(session.session_id, request_id, body["conditions"])
     if not applied:
