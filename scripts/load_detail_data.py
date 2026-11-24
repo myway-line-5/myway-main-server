@@ -150,38 +150,39 @@ def load_detail(db_path: str, temp_dir: Path, stations_csv: Path | None = None) 
             )
             counts["firstlast"] = len(fl_rows)
 
-            # --- 편의시설 ---
-            facility_files = sorted(temp_dir.glob("서울교통공사_편의시설 현황_*.csv"))
+            # --- 편의시설 (서울교통공사 + 9호선1단계 등 *편의시설*.csv 모두) ---
+            facility_files = sorted(temp_dir.glob("*편의시설*.csv"))
             if facility_files:
                 fac_rows: list[tuple] = []
-                for row in _read_csv(facility_files[0]):
-                    raw_line = row["호선"].strip()  # "02호선", "25호선", "41호선" 등
-                    name = row["역명"].strip()
-                    code = row["역번호"].strip()
-                    # "41호선"은 9호선(수인분당선系열 코드)! → 9로 매핑
-                    if raw_line == "41호선":
-                        line_nums = ["9"]
-                    else:
-                        # "02호선" → ["2"], "25호선" → ["2","5"] (환승역)
-                        line_nums = [c for c in raw_line if c.isdigit()]
-                    sid = None
-                    for ln in line_nums:
-                        sid = match_station(name, ln, station_index, code_index, code)
-                        if sid:
-                            break
-                    if not sid:
-                        # 역명만으로 전체 검색
-                        for (n, l), s in station_index.items():
-                            if n == name:
-                                sid = s
+                for fac_file in facility_files:
+                    for row in _read_csv(fac_file):
+                        raw_line = row["호선"].strip()  # "02호선", "25호선", "41호선" 등
+                        name = row["역명"].strip()
+                        code = row["역번호"].strip()
+                        # "41호선"은 9호선(수인분당선系열 코드)! → 9로 매핑
+                        if raw_line == "41호선":
+                            line_nums = ["9"]
+                        else:
+                            # "02호선" → ["2"], "25호선" → ["2","5"] (환승역)
+                            line_nums = [c for c in raw_line if c.isdigit()]
+                        sid = None
+                        for ln in line_nums:
+                            sid = match_station(name, ln, station_index, code_index, code)
+                            if sid:
                                 break
-                    if not sid:
-                        counts["unmatched_facility"] += 1
-                        continue
-                    for col, (fcode, fname) in FACILITY_COLUMNS.items():
-                        if col in row:
-                            avail = 1 if row[col].strip().upper() == "Y" else 0
-                            fac_rows.append((sid, fcode, fname, avail))
+                        if not sid:
+                            # 역명만으로 전체 검색
+                            for (n, l), s in station_index.items():
+                                if n == name:
+                                    sid = s
+                                    break
+                        if not sid:
+                            counts["unmatched_facility"] += 1
+                            continue
+                        for col, (fcode, fname) in FACILITY_COLUMNS.items():
+                            if col in row:
+                                avail = 1 if row[col].strip().upper() == "Y" else 0
+                                fac_rows.append((sid, fcode, fname, avail))
                 db._conn.executemany(
                     "INSERT OR REPLACE INTO StationFacility (station_id, facility_code, facility_name, available)"
                     " VALUES (?, ?, ?, ?)",

@@ -60,8 +60,8 @@ def search_route(
     if not isinstance(max_fare_krw, int):
         max_fare_krw = None
 
-    optimization = "shortest_time"
-    if isinstance(preference, str):
+    optimization = req.optimization or "shortest_time"
+    if not req.optimization and isinstance(preference, str):
         p = preference.lower()
         if "transfer" in p or "환승" in preference:
             optimization = "minimum_transfer"

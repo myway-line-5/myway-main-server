@@ -2,6 +2,7 @@
 
 - GET  /v1/stations                전체 역 목록 (세션 없이 동작)
 - GET  /v1/stations/search?q=      이름 검색 (세션 없이 동작, 0건=빈 배열)
+- GET  /v1/stations/{station_id}/detail  역 상세 (첫차·막차·시간표·편의시설, 세션 없이 동작)
 - POST /v1/stations/resolve        AI 역 이름(raw/suggested) 대조 → 후보 목록 (세션 없이 동작)
 - POST /v1/stations/confirm        역 확정 — 세션 사용, AI 재호출 없음
 - POST /v1/stations/release        명시적 역 해제 (해당 슬롯 + 확정 ID 해제)
@@ -14,8 +15,11 @@ from fastapi import APIRouter, Depends, Query, Request
 from ..conditions import to_app_conditions
 from ..schemas import (
     ConditionUpdateResponse,
+    FacilityDTO,
+    FirstLastDTO,
     StationConfirmRequest,
     StationConfirmResponse,
+    StationDetailResponse,
     StationListResponse,
     StationReleaseRequest,
     StationResolveRequest,
@@ -24,6 +28,14 @@ from ..schemas import (
 from ..sessions import SessionState, get_session
 
 router = APIRouter(tags=["stations"])
+
+
+def _hm(t: str | None) -> str:
+    """HH:mm:ss → HH:mm (자정 넘김 24:xx 유지)."""
+    if not t:
+        return ""
+    parts = t.split(":")
+    return f"{parts[0]}:{parts[1]}" if len(parts) >= 2 else t
 
 
 @router.get("/stations", response_model=StationListResponse, summary="전체 역 목록 조회")
@@ -37,6 +49,79 @@ def search_stations(
     q: str = Query("", description="검색어. 포함 일치, 결과가 없으면 빈 배열(items: [])을 반환한다"),
 ) -> StationListResponse:
     return StationListResponse(items=request.app.state.catalog.search(q))
+
+
+@router.get(
+    "/stations/{station_id}/detail",
+    response_model=StationDetailResponse,
+    summary="역 상세 (첫차·막차·시간표·편의시설)",
+)
+def station_detail(
+    station_id: str,
+    request: Request,
+    day_type: str | None = Query(None, description="시간표 필터 요일 (WEEKDAY/SATURDAY/HOLIDAY). 생략 시 전체"),
+    direction: str | None = Query(None, description="시간표 필터 방향 (UP/DOWN/IN/OUT). 생략 시 전체"),
+    limit: int = Query(500, ge=1, le=2000, description="방면별 시간표 최대 건수"),
+) -> StationDetailResponse:
+    catalog = request.app.state.catalog
+    db = request.app.state.db
+    station = catalog.get(station_id)
+    if station is None:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail={"error_code": "STATION_NOT_FOUND"})
+
+    # 첫차·막차
+    fl_rows = db.query_all(
+        "SELECT line, direction, day_type, first_departure, last_departure "
+        "FROM StationFirstLast WHERE station_id = ? ORDER BY line, day_type, direction",
+        (station_id,),
+    )
+    first_last = [
+        FirstLastDTO(
+            direction=r["direction"],
+            first=_hm(r["first_departure"]),
+            last=_hm(r["last_departure"]),
+            day_type=r["day_type"],
+        )
+        for r in fl_rows
+    ]
+
+    # 시간표: 요일 → 방면 → 출발시각 목록
+    timetable: dict[str, dict[str, list[str]]] = {}
+    sql = (
+        "SELECT day_type, direction, departure_time FROM TrainSchedule "
+        "WHERE station_id = ? AND departure_time IS NOT NULL"
+    )
+    params: list = [station_id]
+    if day_type:
+        sql += " AND day_type = ?"
+        params.append(day_type.upper())
+    if direction:
+        sql += " AND direction = ?"
+        params.append(direction.upper())
+    sql += " ORDER BY day_type, direction, departure_time LIMIT 20000"
+    for r in db.query_all(sql, tuple(params)):
+        dt = r["day_type"]
+        dr = r["direction"]
+        bucket = timetable.setdefault(dt, {}).setdefault(dr, [])
+        if len(bucket) < limit:
+            bucket.append(_hm(r["departure_time"]))
+
+    # 편의시설 (available=1만)
+    fac_rows = db.query_all(
+        "SELECT facility_code, facility_name FROM StationFacility "
+        "WHERE station_id = ? AND available = 1 ORDER BY facility_name",
+        (station_id,),
+    )
+    facilities = [FacilityDTO(code=r["facility_code"], name=r["facility_name"], where="") for r in fac_rows]
+
+    return StationDetailResponse(
+        station=station,
+        first_last=first_last,
+        timetable=timetable,
+        congestion=[],  # 혼잡도 데이터 미확보
+        facilities=facilities,
+    )
 
 
 @router.post(

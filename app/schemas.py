@@ -137,10 +137,19 @@ class RouteResultDTO(BaseModel):
 
 
 class RouteSearchRequest(BaseModel):
-    """POST /v1/routes/search. 바디의 station_id가 없으면 세션의 확정 역(confirmed_stations)으로 탐색한다."""
+    """POST /v1/routes/search. 바디의 station_id가 없으면 세션의 확정 역(confirmed_stations)으로 탐색한다.
+
+    optimization이 있으면 세션 preference보다 우선한다 (앱이 기준별로 여러 번 요청해서
+    탭을 구성하는 용도). 없으면従来대로 세션 preference / 기본 shortest_time.
+    """
 
     origin_station_id: str | None = Field(None, examples=["L2_MAIN_001"])
     destination_station_id: str | None = Field(None, examples=["L5_539"])
+    optimization: Literal["shortest_time", "minimum_transfer", "minimum_fare"] | None = Field(
+        None,
+        examples=["shortest_time"],
+        description="명시적 탐색 기준. shortest_time / minimum_transfer / minimum_fare",
+    )
 
 
 class RouteSearchResponse(BaseModel):
@@ -158,3 +167,30 @@ class RouteSearchResponse(BaseModel):
     metrics: dict[str, Any] | None = Field(
         None, description="탐색 실측 측정치 (현재는 메인 측 소요시간). 상태 수·우위 비교 횟수·최대 큐 크기는 4번 함수 metrics 반환 추가 후 반영 예정"
     )
+
+
+class FirstLastDTO(BaseModel):
+    """첫차·막차. 시간은 HH:mm (자정 넘김 24:xx許容)."""
+
+    direction: str = Field(..., examples=["OUT"])
+    first: str = Field(..., examples=["05:36"])
+    last: str = Field(..., examples=["24:46"])
+    day_type: str = Field(..., examples=["WEEKDAY"], description="WEEKDAY / SATURDAY / HOLIDAY")
+
+
+class FacilityDTO(BaseModel):
+    code: str = Field(..., examples=["elevator"])
+    name: str = Field(..., examples=["엘리베이터"])
+    where: str = Field("", description="위치 상세. 데이터에 없으면 빈 문자열")
+
+
+class StationDetailResponse(BaseModel):
+    """역 상세 (앱 StationDetail対応). 혼잡도는 데이터 미확보 시 빈 배열."""
+
+    station: StationDTO
+    first_last: list[FirstLastDTO] = Field(default_factory=list)
+    # 요일(day_type) -> 방향 -> 출발시각(HH:mm) 목록
+    timetable: dict[str, dict[str, list[str]]] = Field(default_factory=dict)
+    # 0~23시 혼잡도 0~100. 데이터 없으면 빈 배열
+    congestion: list[int] = Field(default_factory=list)
+    facilities: list[FacilityDTO] = Field(default_factory=list)
