@@ -73,6 +73,9 @@ class RoutingGraph:
             or max_fare_krw is not None
         )
         if optimization == "minimum_fare":
+            # 시간·환승 제약이 있으면 명시적으로 거부 (무시하면 설계서 "제한은 반드시 만족" 위반)
+            if max_duration_seconds is not None or max_transfers is not None:
+                return {"status": "unsupported"}
             result = fns["minimum_cost"](self, origin_id, destination_id)
             if result is not None and max_fare_krw is not None:
                 if result.get("total_fare", 0) > max_fare_krw:

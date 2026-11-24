@@ -115,7 +115,15 @@ def search_route(
             )
         )
 
-    total_fare_krw = routing.functions["calculate_fare"](total_meters)
+    # 응답 요금: minimum_cost 결과는 승차(RIDE) 거리 기준 total_fare를 이미 포함한다.
+    # 환승 간선 거리를 합산해서 재계산하면 제약검사 값과 어긋나므로(버그) 그 값을 우선 사용.
+    total_fare_krw = result.get("total_fare")
+    if total_fare_krw is None:
+        fare_distance = sum(step.get("fare_distance") or 0 for step in result["route"])
+        if fare_distance > 0:
+            total_fare_krw = routing.functions["calculate_fare"](fare_distance)
+        else:
+            total_fare_krw = routing.functions["calculate_fare"](total_meters)
     db = request.app.state.db
     fare_version_row = db.query_one("SELECT value FROM meta WHERE key = 'fare_version'")
     fare_version = fare_version_row["value"] if fare_version_row else None

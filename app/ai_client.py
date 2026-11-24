@@ -46,9 +46,16 @@ class AiClient:
         )
         try:
             with urllib.request.urlopen(req, timeout=self._timeout) as resp:
+                raw = resp.read().decode("utf-8")
+                try:
+                    body = json.loads(raw)
+                except (json.JSONDecodeError, UnicodeDecodeError) as e:
+                    # 비정상 바디(게이트웨이 HTML, 깨진 JSON)도 통신 실패로 처리 —
+                    # 이 예외가 밖으로 새면 inflight가 잔류해서 세션이 잠김 (버그)
+                    raise AiTransportError(f"invalid_json:{type(e).__name__}") from e
                 return AiInterpretResult(
                     status=resp.status,
-                    body=json.loads(resp.read().decode("utf-8")),
+                    body=body if isinstance(body, dict) else None,
                     provider=resp.headers.get("X-AI-Provider"),
                 )
         except urllib.error.HTTPError as e:
