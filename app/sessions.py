@@ -49,6 +49,8 @@ class SessionState:
     confirmed_stations: dict[str, str] = field(default_factory=dict)  # slot -> station_id
     version: int = 0
     inflight: dict[str, int] = field(default_factory=dict)  # request_id -> AI 호출 시점의 기반 version
+    # request_id -> 시작 시각(monotonic). 정리되지 못한 inflight로 세션이 계속 잠기는 것 방지
+    inflight_started: dict[str, float] = field(default_factory=dict)
     last_access: float = field(default_factory=time.monotonic)
 
 
@@ -77,18 +79,28 @@ class SessionStore:
             self._sessions[key] = s
             return s
 
-    def begin_request(self, session_id: str, request_id: str) -> int | None:
+    def begin_request(
+        self, session_id: str, request_id: str, stale_after_seconds: float | None = None
+    ) -> int | None:
         """AI 호출 시작. 기반 version을 inflight에 기록하고 그 값을 반환한다.
 
         같은 세션에 이미 진행 중인 요청(inflight)이 있으면 기록하지 않고 None을 반환한다.
         호출자는 None이면 AI를 호출하지 않고 즉시 실패로 응답해야 한다.
+        stale_after_seconds보다 오래된 inflight는 정리되지 못한 기록으로 보고 지운다.
         """
         with self._lock:
             s = self._sessions[session_id]
-            s.last_access = time.monotonic()
+            now = time.monotonic()
+            s.last_access = now
+            if stale_after_seconds is not None:
+                for rid, started in list(s.inflight_started.items()):
+                    if now - started > stale_after_seconds:
+                        s.inflight.pop(rid, None)
+                        s.inflight_started.pop(rid, None)
             if s.inflight:
                 return None
             s.inflight[request_id] = s.version
+            s.inflight_started[request_id] = now
             return s.version
 
     def apply_ai_response(
@@ -108,6 +120,7 @@ class SessionStore:
             if s is None or request_id not in s.inflight:
                 return False
             base_version = s.inflight.pop(request_id)
+            s.inflight_started.pop(request_id, None)
             s.last_access = time.monotonic()
             if base_version != s.version:
                 return False  # 늦은 응답 폐기 — 마지막 정상 조건 유지
@@ -130,6 +143,7 @@ class SessionStore:
                 return
             s.last_access = time.monotonic()
             s.inflight.pop(request_id, None)
+            s.inflight_started.pop(request_id, None)
 
     def confirm_station_slot(
         self, session_id: str, slot: str, station_id: str, station_name: str
@@ -246,6 +260,7 @@ class SessionStore:
             s.confirmed_condition = None
             s.confirmed_stations = {}
             s.inflight.clear()
+            s.inflight_started.clear()
             s.version += 1
             return s.version
 

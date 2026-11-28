@@ -337,3 +337,28 @@ def test_settings_validation():
     ok = Settings(env=TEST_ENV_BASE)
     assert ok.expected_ai_provider == "mock"
     assert ok.ai_interpret_timeout_seconds == 25.0
+
+
+# ---- 진행 중 기록 정리 (issue #5) ----
+
+def test_stale_inflight_does_not_lock_session(ai_client_app):
+    """정리되지 못한 진행 중 기록이 오래되면 무시하고 정상 처리한다."""
+    client, mock = ai_client_app
+    store = client.app.state.session_store
+    s = _session(client)
+    store.begin_request(s.session_id, "leaked")
+    s.inflight_started["leaked"] -= 3600
+    assert _post(client).json()["result"] == "success"
+    assert s.inflight == {}
+
+
+def test_unexpected_ai_error_clears_inflight(ai_client_app):
+    client, mock = ai_client_app
+
+    class BrokenAi:
+        def interpret(self, current_conditions, user_message):
+            raise ValueError("boom")
+
+    client.app.state.ai_client = BrokenAi()
+    assert _post(client).json()["result"] == "communication_failure"
+    assert _session(client).inflight == {}
