@@ -73,7 +73,9 @@ def interpret(
         return InterpretResponse(result="business_failure", error_code=message_error)
 
     request_id = uuid.uuid4().hex
-    base_version = store.begin_request(session.session_id, request_id)
+    # 메인→AI 대기 시간 + 5초보다 오래된 진행 중 기록은 정리되지 못한 것으로 보고 무시
+    stale_after = request.app.state.settings.ai_interpret_timeout_seconds + 5.0
+    base_version = store.begin_request(session.session_id, request_id, stale_after)
     if base_version is None:
         # 같은 세션에 진행 중인 해석이 있음 — AI 호출 없이 바로 실패 (호출 분 낭비 방지)
         return done("business_failure", "REQUEST_IN_PROGRESS", None)
@@ -85,6 +87,11 @@ def interpret(
     except AiTransportError:
         store.abort_request(session.session_id, request_id)
         return done("communication_failure", None, None)
+    except Exception:
+        # 예상 밖 오류에도 진행 중 기록을 지운다 (남으면 이 세션의 다음 해석이 막힘)
+        store.abort_request(session.session_id, request_id)
+        log.exception("interpret request_id=%s unexpected_error", request_id)
+        return done("communication_failure", "MALFORMED_RESPONSE", None)
 
     provider = resp.provider
 
