@@ -194,3 +194,136 @@ class StationDetailResponse(BaseModel):
     # 0~23시 혼잡도 0~100. 데이터 없으면 빈 배열
     congestion: list[int] = Field(default_factory=list)
     facilities: list[FacilityDTO] = Field(default_factory=list)
+
+
+# ────────────────────────────────────────────────────────────────
+# 실시간 도착·위치정보 (Phase 2, 서울시 실시간 API 연동)
+# ────────────────────────────────────────────────────────────────
+
+
+class ArrivalTrainDTO(BaseModel):
+    """탑승역에 도착 예정인 열차 1건 (서울시 realtimeArrivalList 1행)."""
+
+    train_no: str = Field(
+        ...,
+        examples=["2227"],
+        description="열차번호. 위치정보 trainNo와 동일 체계 — 탑승 열차를 고정할 때 이 값을 쓴다",
+    )
+    line: str = Field(..., examples=["2"], description="노선 문자열 (2/5/9만 전달)")
+    direction: Literal["up", "down", "unknown"] = Field(
+        ...,
+        description="방면 정규화: up=상행/내선, down=하행/외선, unknown=API가 알려주지 않음",
+    )
+    direction_label: str = Field(
+        ...,
+        examples=["내선"],
+        description="서울시 updnLine 원문 (상행/내선/하행/외선)",
+    )
+    destination: str = Field(
+        ...,
+        examples=["성수"],
+        description="행선지(종착역, bstatnNm)",
+    )
+    heading: str = Field(
+        ...,
+        examples=["성수행 - 역삼방면"],
+        description="도착지 방면 안내 원문 (trainLineNm)",
+    )
+    arrival_seconds: int = Field(
+        ...,
+        description="도착 예정 남은 시간(초). 0이면 전역 도착 등 — arrival_message 참조",
+    )
+    arrival_message: str = Field(
+        ...,
+        examples=["2분 20초 후"],
+        description="도착 예정 안내 원문 (arvlMsg2)",
+    )
+    arrival_code: str = Field(
+        ...,
+        examples=["99"],
+        description="서울시 arvlCd 원문 (99=시간 안내형, 5=전역 도착 등)",
+    )
+    train_kind: str = Field(
+        ...,
+        examples=["일반"],
+        description="열차 종류 원문 (일반/급행 등)",
+    )
+    is_last_train: bool = Field(..., description="막차 여부 (lstcarAt=1)")
+    received_at: str = Field(
+        ...,
+        description="서울시 수신 시각 원문 (제공 시점 기준 — 실제와 차이날 수 있음)",
+    )
+
+
+class ArrivalListResponse(BaseModel):
+    """GET /v1/realtime/arrivals 응답."""
+
+    status: Literal["ok", "unavailable", "not_configured", "error"] = Field(
+        ...,
+        description=(
+            "ok=정상 / unavailable=서울시 응답 지연·누락·실패로 확인 불가(추정 모드 전환 근거) "
+            "/ not_configured=메인에 API 키 미설정 / error=요청 자체 오류"
+        ),
+    )
+    error_code: str | None = Field(
+        None,
+        examples=["SEOUL_TRANSPORT_ERROR"],
+        description="unavailable·error 사유 코드. ok여도 서울시 원본 오류 코드가 같이 오면 참고용",
+    )
+    station: StationDTO | None = Field(None, description="요청한 역 정보 (unavailable에도 포함)")
+    items: list[ArrivalTrainDTO] = Field(default_factory=list, description="도착 예정 열차 목록")
+    received_at: str | None = Field(
+        None,
+        description="서울시 수신 시각 원문. unavailable이면 None",
+    )
+
+
+class TrainPositionDTO(BaseModel):
+    """운행 중인 열차 1대의 현재 위치·상태 (서울시 realtimePositionList 1행)."""
+
+    train_no: str = Field(..., examples=["9103"], description="열차번호")
+    line: str = Field(..., examples=["9"], description="노선 문자열 (2/5/9)")
+    station_name: str = Field(..., examples=["가양"], description="현재 위치 역명 (statnNm)")
+    station_seoul_id: str | None = Field(
+        None,
+        examples=["1009000925"],
+        description="현재 위치 역의 서울시 statnId 원문 (우리 station_id 체계와 다름)",
+    )
+    direction: Literal["up", "down", "unknown"] = Field(
+        ...,
+        description="방면 정규화: up=상행(0), down=하행(1)",
+    )
+    status: Literal["approaching", "arrived", "departed", "prev_station_departed", "unknown"] = (
+        Field(
+            ...,
+            description=(
+                "열차 상태 정규화: approaching=전역 진입(0), arrived=전역 도착(1), "
+                "departed=전역 출발(2), prev_station_departed=전전역 출발(3), unknown=확인 불가"
+            ),
+        )
+    )
+    terminal: str = Field(..., examples=["개화"], description="행선지·종착역 (statnTnm)")
+    is_express: bool = Field(..., description="급행 여부 (directAt=1)")
+    received_at: str = Field(
+        ...,
+        description="서울시 수신 시각 원문 (제공 시점 기준 — 실제와 차이날 수 있음)",
+    )
+
+
+class TrainPositionResponse(BaseModel):
+    """GET /v1/realtime/trains/{train_no} 응답."""
+
+    status: Literal["ok", "unavailable", "not_configured", "error"] = Field(
+        ...,
+        description="ok=정상 / unavailable=확인 불가(지연·미운행·실패) / not_configured=키 미설정 / error=요청 오류",
+    )
+    error_code: str | None = Field(
+        None,
+        examples=["TRAIN_NOT_FOUND"],
+        description=(
+            "unavailable·error 사유. TRAIN_NOT_FOUND=해당 열차가 운행 정보에 없음(미운행·고정 실패 근거), "
+            "SEOUL_* / 서울시 원본 코드=API 실패"
+        ),
+    )
+    train: TrainPositionDTO | None = Field(None, description="열차 위치. unavailable이면 None")
+    received_at: str | None = Field(None, description="서울시 수신 시각 원문")

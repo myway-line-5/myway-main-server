@@ -78,3 +78,18 @@ class Settings:
                 "MYWAY_ALGORITHM_SRC_PATH 환경변수를 확인하세요. 서버를 시작할 수 없습니다."
             )
         self.algorithm_src_path = algo_src
+
+        # 서울시 실시간 API (Phase 2). 키는 선택 — 없으면 실시간 엔드포인트가 not_configured 응답.
+        # 키는 절대 코드·저장소·로그에 두지 않는다 (.env 전용).
+        self.seoul_api_key = env.get("SEOUL_API_KEY", "").strip()
+        seoul_timeout = float(env.get("SEOUL_API_TIMEOUT_SECONDS", "5"))
+        if seoul_timeout <= 0:
+            raise RuntimeError("SEOUL_API_TIMEOUT_SECONDS는 양수여야 합니다.")
+        self.seoul_api_timeout_seconds = seoul_timeout
+        seoul_ttl = float(env.get("SEOUL_REALTIME_CACHE_TTL_SECONDS", "10"))
+        if seoul_ttl <= 0:
+            raise RuntimeError("SEOUL_REALTIME_CACHE_TTL_SECONDS는 양수여야 합니다.")
+        self.seoul_realtime_cache_ttl_seconds = seoul_ttl
+        self.seoul_api_base_url = (
+            env.get("SEOUL_API_BASE_URL", "").strip() or "http://swopenAPI.seoul.go.kr/api/subway"
+        )
